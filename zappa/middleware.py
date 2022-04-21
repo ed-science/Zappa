@@ -54,7 +54,7 @@ class ZappaWSGIMiddleware:
                 for header in headers
                 if ((type(header[0]) == str) and (header[0].lower() == "set-cookie"))
             ]
-            new_headers = new_headers + cookie_headers
+            new_headers += cookie_headers
 
             return start_response(status, new_headers, exc_info)
 

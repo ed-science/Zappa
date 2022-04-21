@@ -180,7 +180,7 @@ def detect_flask_apps():
                         .split(".", 1)[1]
                         .replace(".py", "")
                     )
-                    app_module = package_module + "." + app
+                    app_module = f"{package_module}.{app}"
 
                     matches.append(app_module)
 
@@ -195,13 +195,12 @@ def get_runtime_from_python_version():
     """ """
     if sys.version_info[0] < 3:
         raise ValueError("Python 2.x is no longer supported.")
+    if sys.version_info[1] <= 6:
+        return "python3.6"
+    elif sys.version_info[1] <= 7:
+        return "python3.7"
     else:
-        if sys.version_info[1] <= 6:
-            return "python3.6"
-        elif sys.version_info[1] <= 7:
-            return "python3.7"
-        else:
-            return "python3.8"
+        return "python3.8"
 
 
 ##
@@ -211,7 +210,7 @@ def get_runtime_from_python_version():
 
 def get_topic_name(lambda_name):
     """Topic name generation"""
-    return "%s-zappa-async" % lambda_name
+    return f"{lambda_name}-zappa-async"
 
 
 ##
@@ -256,16 +255,17 @@ def get_event_source(
             self._lambda = kappa.awsclient.create_client("lambda", context.session)
 
         def _get_uuid(self, function):
-            uuid = None
             response = self._lambda.call(
                 "list_event_source_mappings",
                 FunctionName=function.name,
                 EventSourceArn=self.arn,
             )
             LOG.debug(response)
-            if len(response["EventSourceMappings"]) > 0:
-                uuid = response["EventSourceMappings"][0]["UUID"]
-            return uuid
+            return (
+                response["EventSourceMappings"][0]["UUID"]
+                if len(response["EventSourceMappings"]) > 0
+                else None
+            )
 
         def add(self, function):
             try:
@@ -306,8 +306,7 @@ def get_event_source(
 
         def update(self, function):
             response = None
-            uuid = self._get_uuid(function)
-            if uuid:
+            if uuid := self._get_uuid(function):
                 try:
                     response = self._lambda.call(
                         "update_event_source_mapping",
@@ -321,8 +320,7 @@ def get_event_source(
 
         def remove(self, function):
             response = None
-            uuid = self._get_uuid(function)
-            if uuid:
+            if uuid := self._get_uuid(function):
                 response = self._lambda.call("delete_event_source_mapping", UUID=uuid)
                 LOG.debug(response)
             return response
@@ -330,8 +328,7 @@ def get_event_source(
         def status(self, function):
             response = None
             LOG.debug("getting status for event source %s", self.arn)
-            uuid = self._get_uuid(function)
-            if uuid:
+            if uuid := self._get_uuid(function):
                 try:
                     response = self._lambda.call(
                         "get_event_source_mapping", UUID=self._get_uuid(function)
@@ -351,8 +348,7 @@ def get_event_source(
 
         def add_filters(self, function):
             try:
-                subscription = self.exists(function)
-                if subscription:
+                if subscription := self.exists(function):
                     response = self._sns.call(
                         "set_subscription_attributes",
                         SubscriptionArn=subscription["SubscriptionArn"],
@@ -434,12 +430,11 @@ def add_event_source(
     )
     # TODO: Detect changes in config and refine exists algorithm
     if not dry:
-        if not event_source_obj.status(funk):
-            event_source_obj.add(funk)
-            return "successful" if event_source_obj.status(funk) else "failed"
-        else:
+        if event_source_obj.status(funk):
             return "exists"
 
+        event_source_obj.add(funk)
+        return "successful" if event_source_obj.status(funk) else "failed"
     return "dryrun"
 
 
@@ -456,11 +451,7 @@ def remove_event_source(
 
     # This is slightly dirty, but necessary for using Kappa this way.
     funk.arn = lambda_arn
-    if not dry:
-        rule_response = event_source_obj.remove(funk)
-        return rule_response
-    else:
-        return event_source_obj
+    return event_source_obj if dry else event_source_obj.remove(funk)
 
 
 def get_event_source_status(
@@ -563,7 +554,7 @@ def conflicts_with_a_neighbouring_module(directory_path):
     """
     parent_dir_path, current_dir_name = os.path.split(os.path.normpath(directory_path))
     neighbours = os.listdir(parent_dir_path)
-    conflicting_neighbour_filename = current_dir_name + ".py"
+    conflicting_neighbour_filename = f"{current_dir_name}.py"
     return conflicting_neighbour_filename in neighbours
 
 
@@ -600,12 +591,7 @@ def is_valid_bucket_name(name):
             return False
         if not (label[-1].islower() or label[-1].isdigit()):
             return False
-    # Bucket names must not be formatted as an IP address (for example, 192.168.5.4).
-    looks_like_IP = True
-    for label in name.split("."):
-        if not label.isdigit():
-            looks_like_IP = False
-            break
+    looks_like_IP = all(label.isdigit() for label in name.split("."))
     if looks_like_IP:
         return False
 

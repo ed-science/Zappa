@@ -24,11 +24,11 @@ class TestZappa(unittest.TestCase):
         # If the user has set a different region in env variables, we set it aside for now and use us-east-1
         self.users_current_region_name = os.environ.get("AWS_DEFAULT_REGION", None)
         os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-        if not os.environ.get("PLACEBO_MODE") == "record":
+        if os.environ.get("PLACEBO_MODE") != "record":
             self.sleep_patch.start()
 
     def tearDown(self):
-        if not os.environ.get("PLACEBO_MODE") == "record":
+        if os.environ.get("PLACEBO_MODE") != "record":
             self.sleep_patch.stop()
         del os.environ["AWS_DEFAULT_REGION"]
         if self.users_current_region_name is not None:
@@ -81,7 +81,7 @@ class TestZappa(unittest.TestCase):
             Bucket=bucket_name,
             Key=zip_path,
         )
-        zp = "copy_" + zip_path
+        zp = f"copy_{zip_path}"
         res = z.copy_on_s3(zip_path, zp, bucket_name)
         os.remove(zip_path)
         self.assertTrue(res)
@@ -195,7 +195,7 @@ class TestZappa(unittest.TestCase):
     def test_create_iam_roles(self, session):
         z = Zappa(session)
         arn, updated = z.create_iam_roles()
-        self.assertEqual(arn, "arn:aws:iam::123:role/{}".format(z.role_name))
+        self.assertEqual(arn, f"arn:aws:iam::123:role/{z.role_name}")
 
     @placebo_session
     def test_get_api_url(self, session):

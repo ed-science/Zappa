@@ -57,13 +57,13 @@ def get_cert_and_update_domain(
         get_cert(zappa_instance)
         create_chained_certificate()
 
-        with open("{}/signed.crt".format(gettempdir())) as f:
+        with open(f"{gettempdir()}/signed.crt") as f:
             certificate_body = f.read()
 
-        with open("{}/domain.key".format(gettempdir())) as f:
+        with open(f"{gettempdir()}/domain.key") as f:
             certificate_private_key = f.read()
 
-        with open("{}/intermediate.pem".format(gettempdir())) as f:
+        with open(f"{gettempdir()}/intermediate.pem") as f:
             certificate_chain = f.read()
 
         if not manual:
@@ -71,7 +71,7 @@ def get_cert_and_update_domain(
                 if not zappa_instance.get_domain_name(domain):
                     zappa_instance.create_domain_name(
                         domain_name=domain,
-                        certificate_name=domain + "-Zappa-LE-Cert",
+                        certificate_name=f"{domain}-Zappa-LE-Cert",
                         certificate_body=certificate_body,
                         certificate_private_key=certificate_private_key,
                         certificate_chain=certificate_chain,
@@ -79,13 +79,14 @@ def get_cert_and_update_domain(
                         lambda_name=lambda_name,
                         stage=api_stage,
                     )
+
                     print(
                         "Created a new domain name. Please note that it can take up to 40 minutes for this domain to be created and propagated through AWS, but it requires no further work on your part."
                     )
                 else:
                     zappa_instance.update_domain_name(
                         domain_name=domain,
-                        certificate_name=domain + "-Zappa-LE-Cert",
+                        certificate_name=f"{domain}-Zappa-LE-Cert",
                         certificate_body=certificate_body,
                         certificate_private_key=certificate_private_key,
                         certificate_chain=certificate_chain,
@@ -93,6 +94,7 @@ def get_cert_and_update_domain(
                         lambda_name=lambda_name,
                         stage=api_stage,
                     )
+
         else:
             print("Cerificate body:\n")
             print(certificate_body)
@@ -118,7 +120,7 @@ def create_domain_key():
 
 
 def create_domain_csr(domain):
-    subj = "/CN=" + domain
+    subj = f"/CN={domain}"
     cmd = [
         "openssl",
         "req",
@@ -182,14 +184,14 @@ def parse_csr():
     domains = set([])
     common_name = re.search(r"Subject:.*? CN\s?=\s?([^\s,;/]+)", out.decode("utf8"))
     if common_name is not None:
-        domains.add(common_name.group(1))
+        domains.add(common_name[1])
     subject_alt_names = re.search(
         r"X509v3 Subject Alternative Name: \n +([^\n]+)\n",
         out.decode("utf8"),
         re.MULTILINE | re.DOTALL,
     )
     if subject_alt_names is not None:
-        for san in subject_alt_names.group(1).split(", "):
+        for san in subject_alt_names[1].split(", "):
             if san.startswith("DNS:"):
                 domains.add(san[4:])
 
@@ -208,18 +210,18 @@ def get_boulder_header(key_bytes):
     ).groups()
     pub_exp = "{0:x}".format(int(pub_exp))
     pub_exp = "0{0}".format(pub_exp) if len(pub_exp) % 2 else pub_exp
-    header = {
+    return {
         "alg": "RS256",
         "jwk": {
             "e": _b64(binascii.unhexlify(pub_exp.encode("utf-8"))),
             "kty": "RSA",
             "n": _b64(
-                binascii.unhexlify(re.sub(r"(\s|:)", "", pub_hex).encode("utf-8"))
+                binascii.unhexlify(
+                    re.sub(r"(\s|:)", "", pub_hex).encode("utf-8")
+                )
             ),
         },
     }
-
-    return header
 
 
 def register_account():
@@ -228,12 +230,13 @@ def register_account():
     """
     LOGGER.info("Registering account...")
     code, result = _send_signed_request(
-        DEFAULT_CA + "/acme/new-reg",
+        f"{DEFAULT_CA}/acme/new-reg",
         {
             "resource": "new-reg",
             "agreement": "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf",
         },
     )
+
     if code == 201:  # pragma: no cover
         LOGGER.info("Registered!")
     elif code == 409:  # pragma: no cover
@@ -263,12 +266,13 @@ def get_cert(zappa_instance, log=LOGGER, CA=DEFAULT_CA):
 
         # get new challenge
         code, result = _send_signed_request(
-            CA + "/acme/new-authz",
+            f"{CA}/acme/new-authz",
             {
                 "resource": "new-authz",
                 "identifier": {"type": "dns", "value": domain},
             },
         )
+
         if code != 201:
             raise ValueError(
                 "Error requesting challenges: {0} {1}".format(code, result)
@@ -287,7 +291,7 @@ def get_cert(zappa_instance, log=LOGGER, CA=DEFAULT_CA):
 
         zone_id = zappa_instance.get_hosted_zone_id_for_domain(domain)
         if not zone_id:
-            raise ValueError("Could not find Zone ID for: " + domain)
+            raise ValueError(f"Could not find Zone ID for: {domain}")
         zappa_instance.set_dns_challenge_txt(zone_id, domain, digest)  # resp is unused
 
         print("Waiting for DNS to propagate..")
@@ -364,12 +368,13 @@ def sign_certificate():
     devnull = open(os.devnull, "wb")
     csr_der = subprocess.check_output(cmd, stderr=devnull)
     code, result = _send_signed_request(
-        DEFAULT_CA + "/acme/new-cert",
+        f"{DEFAULT_CA}/acme/new-cert",
         {
             "resource": "new-cert",
             "csr": _b64(csr_der),
         },
     )
+
     if code != 201:
         raise ValueError("Error signing certificate: {0} {1}".format(code, result))
     LOGGER.info("Certificate signed!")
@@ -386,10 +391,8 @@ def encode_certificate(result):
             "\n".join(textwrap.wrap(base64.b64encode(result).decode("utf8"), 64))
         )
     )
-    signed_crt = open("{}/signed.crt".format(gettempdir()), "w")
-    signed_crt.write(cert_body)
-    signed_crt.close()
-
+    with open(f"{gettempdir()}/signed.crt", "w") as signed_crt:
+        signed_crt.write(cert_body)
     return True
 
 
@@ -415,7 +418,7 @@ def _send_signed_request(url, payload):
     header = get_boulder_header(out)
 
     protected = copy.deepcopy(header)
-    protected["nonce"] = urlopen(DEFAULT_CA + "/directory").headers["Replay-Nonce"]
+    protected["nonce"] = urlopen(f"{DEFAULT_CA}/directory").headers["Replay-Nonce"]
     protected64 = _b64(json.dumps(protected).encode("utf8"))
     cmd = [
         "openssl",

@@ -31,14 +31,13 @@ def placebo_session(function):
         session_kwargs = {
             "region_name": os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
         }
-        profile_name = os.environ.get("PLACEBO_PROFILE", None)
-        if profile_name:
+        if profile_name := os.environ.get("PLACEBO_PROFILE", None):
             session_kwargs["profile_name"] = profile_name
 
         session = boto3.Session(**session_kwargs)
 
         self = args[0]
-        prefix = self.__class__.__name__ + "." + function.__name__
+        prefix = f"{self.__class__.__name__}.{function.__name__}"
         record_dir = os.path.join(PLACEBO_DIR, prefix)
 
         if not os.path.exists(record_dir):

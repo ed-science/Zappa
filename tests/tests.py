@@ -66,11 +66,11 @@ class TestZappa(unittest.TestCase):
         # If the user has set a different region in env variables, we set it aside for now and use us-east-1
         self.users_current_region_name = os.environ.get("AWS_DEFAULT_REGION", None)
         os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-        if not os.environ.get("PLACEBO_MODE") == "record":
+        if os.environ.get("PLACEBO_MODE") != "record":
             self.sleep_patch.start()
 
     def tearDown(self):
-        if not os.environ.get("PLACEBO_MODE") == "record":
+        if os.environ.get("PLACEBO_MODE") != "record":
             self.sleep_patch.stop()
         del os.environ["AWS_DEFAULT_REGION"]
         if self.users_current_region_name is not None:
@@ -1135,10 +1135,10 @@ class TestZappa(unittest.TestCase):
         Make sure Zappa uses settings in the proper order: JSON, TOML, YAML.
         """
         tempdir = tempfile.mkdtemp(prefix="zappa-test-settings")
-        shutil.copy("tests/test_one_env.json", tempdir + "/zappa_settings.json")
-        shutil.copy("tests/test_settings.yml", tempdir + "/zappa_settings.yml")
-        shutil.copy("tests/test_settings.yml", tempdir + "/zappa_settings.yaml")
-        shutil.copy("tests/test_settings.toml", tempdir + "/zappa_settings.toml")
+        shutil.copy("tests/test_one_env.json", f"{tempdir}/zappa_settings.json")
+        shutil.copy("tests/test_settings.yml", f"{tempdir}/zappa_settings.yml")
+        shutil.copy("tests/test_settings.yml", f"{tempdir}/zappa_settings.yaml")
+        shutil.copy("tests/test_settings.toml", f"{tempdir}/zappa_settings.toml")
 
         orig_cwd = os.getcwd()
         os.chdir(tempdir)
@@ -1967,10 +1967,8 @@ USE_L10N = True
 USE_TZ = True
         """
 
-        djts = open("dj_test_settings.py", "w")
-        djts.write(settings)
-        djts.close()
-
+        with open("dj_test_settings.py", "w") as djts:
+            djts.write(settings)
         app = get_django_wsgi("dj_test_settings")
         try:
             os.remove("dj_test_settings.py")
@@ -2204,8 +2202,7 @@ USE_TZ = True
             scenarios = json.load(f)
         for scenario in scenarios:
             value = scenario["value"]
-            is_valid = scenario["is_valid"]
-            if is_valid:
+            if is_valid := scenario["is_valid"]:
                 assert validate_name(value)
             else:
                 with self.assertRaises(InvalidAwsLambdaName) as exc:
@@ -2441,23 +2438,23 @@ USE_TZ = True
             "add_permission",
             expected_params={
                 "Action": "lambda:InvokeFunction",
-                "FunctionName": "{}:{}".format(kwargs["lambda_arn"], ALB_LAMBDA_ALIAS),
+                "FunctionName": f'{kwargs["lambda_arn"]}:{ALB_LAMBDA_ALIAS}',
                 "Principal": "elasticloadbalancing.amazonaws.com",
                 "SourceArn": targetgroup_arn,
                 "StatementId": kwargs["lambda_name"],
             },
             service_response={},
         )
+
         elbv2_stubber.add_response(
             "register_targets",
             expected_params={
                 "TargetGroupArn": targetgroup_arn,
-                "Targets": [
-                    {"Id": "{}:{}".format(kwargs["lambda_arn"], ALB_LAMBDA_ALIAS)}
-                ],
+                "Targets": [{"Id": f'{kwargs["lambda_arn"]}:{ALB_LAMBDA_ALIAS}'}],
             },
             service_response={},
         )
+
         elbv2_stubber.add_response(
             "create_listener",
             expected_params={

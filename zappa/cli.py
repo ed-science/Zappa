@@ -365,7 +365,7 @@ class ZappaCLI:
             """Ensure an arg is positive"""
             i = int(s)
             if i < 0:
-                msg = "This argument must be positive (got {})".format(s)
+                msg = f"This argument must be positive (got {s})"
                 raise argparse.ArgumentTypeError(msg)
             return i
 
@@ -599,15 +599,16 @@ class ZappaCLI:
 
         self.api_stage = stage
 
-        if command not in ["status", "manage"]:
-            if not self.vargs.get("json", None):
-                click.echo(
-                    "Calling "
-                    + click.style(command, fg="green", bold=True)
-                    + " for stage "
-                    + click.style(self.api_stage, bold=True)
-                    + ".."
-                )
+        if command not in ["status", "manage"] and not self.vargs.get(
+            "json", None
+        ):
+            click.echo(
+                "Calling "
+                + click.style(command, fg="green", bold=True)
+                + " for stage "
+                + click.style(self.api_stage, bold=True)
+                + ".."
+            )
 
         # Explicitly define the app function.
         # Related: https://github.com/Miserlou/Zappa/issues/832
@@ -619,9 +620,9 @@ class ZappaCLI:
             self.load_settings(self.vargs.get("settings_file"))
         except ValueError as e:
             if hasattr(e, "message"):
-                print("Error: {}".format(e.message))
+                print(f"Error: {e.message}")
             else:
-                print(str(e))
+                print(e)
             sys.exit(-1)
         self.callback("settings")
 
@@ -670,12 +671,11 @@ class ZappaCLI:
                 return
 
             command_tail = self.vargs.get("command_rest")
-            if len(command_tail) > 1:
-                command = " ".join(
-                    command_tail
-                )  # ex: zappa manage dev "shell --version"
-            else:
-                command = command_tail[0]  # ex: zappa manage dev showmigrations admin
+            command = (
+                " ".join(command_tail)
+                if len(command_tail) > 1
+                else command_tail[0]
+            )
 
             self.invoke(
                 command,
@@ -716,11 +716,7 @@ class ZappaCLI:
 
     def save_python_settings_file(self, output_path=None):
         settings_path = output_path or "zappa_settings.py"
-        print(
-            "Generating Zappa settings Python file and saving to {}".format(
-                settings_path
-            )
-        )
+        print(f"Generating Zappa settings Python file and saving to {settings_path}")
         if not settings_path.endswith("zappa_settings.py"):
             raise ValueError("Settings file must be named zappa_settings.py")
         zappa_settings_s = self.get_zappa_settings_string()
@@ -777,12 +773,10 @@ class ZappaCLI:
             endpoint_configuration=self.endpoint_configuration,
         )
 
-        if not output:
-            template_file = (
-                self.lambda_name + "-template-" + str(int(time.time())) + ".json"
-            )
-        else:
-            template_file = output
+        template_file = (
+            output or f"{self.lambda_name}-template-{int(time.time())}.json"
+        )
+
         with open(template_file, "wb") as out:
             out.write(
                 bytes(template.to_json(indent=None, separators=(",", ":")), "utf-8")
@@ -804,30 +798,28 @@ class ZappaCLI:
         and create the API Gateway routes.
         """
 
-        if not source_zip or docker_image_uri:
-            # Make sure the necessary IAM execution roles are available
-            if self.manage_roles:
-                try:
-                    self.zappa.create_iam_roles()
-                except botocore.client.ClientError as ce:
-                    raise ClickException(
-                        click.style("Failed", fg="red")
-                        + " to "
-                        + click.style("manage IAM roles", bold=True)
-                        + "!\n"
-                        + "You may "
-                        + click.style("lack the necessary AWS permissions", bold=True)
-                        + " to automatically manage a Zappa execution role.\n"
-                        + click.style("Exception reported by AWS:", bold=True)
-                        + format(ce)
-                        + "\n"
-                        + "To fix this, see here: "
-                        + click.style(
-                            "https://github.com/Zappa/Zappa#custom-aws-iam-roles-and-policies-for-deployment",
-                            bold=True,
-                        )
-                        + "\n"
+        if (not source_zip or docker_image_uri) and self.manage_roles:
+            try:
+                self.zappa.create_iam_roles()
+            except botocore.client.ClientError as ce:
+                raise ClickException(
+                    click.style("Failed", fg="red")
+                    + " to "
+                    + click.style("manage IAM roles", bold=True)
+                    + "!\n"
+                    + "You may "
+                    + click.style("lack the necessary AWS permissions", bold=True)
+                    + " to automatically manage a Zappa execution role.\n"
+                    + click.style("Exception reported by AWS:", bold=True)
+                    + format(ce)
+                    + "\n"
+                    + "To fix this, see here: "
+                    + click.style(
+                        "https://github.com/Zappa/Zappa#custom-aws-iam-roles-and-policies-for-deployment",
+                        bold=True,
                     )
+                    + "\n"
+                )
 
         # Make sure this isn't already deployed.
         deployed_versions = self.zappa.get_lambda_function_versions(self.lambda_name)
@@ -984,7 +976,7 @@ class ZappaCLI:
 
             # Deploy the API!
             endpoint_url = self.deploy_api_gateway(api_id)
-            deployment_string = deployment_string + ": {}".format(endpoint_url)
+            deployment_string = deployment_string + f": {endpoint_url}"
 
             # Create/link API key
             if self.api_key_required:
@@ -1002,9 +994,12 @@ class ZappaCLI:
                 self.touch_endpoint(endpoint_url)
 
         # Finally, delete the local copy our zip package
-        if not source_zip and not docker_image_uri:
-            if self.stage_config.get("delete_local_zip", True):
-                self.remove_local_zip()
+        if (
+            not source_zip
+            and not docker_image_uri
+            and self.stage_config.get("delete_local_zip", True)
+        ):
+            self.remove_local_zip()
 
         # Remove the project zip from S3.
         if not source_zip and not docker_image_uri:
@@ -1145,17 +1140,16 @@ class ZappaCLI:
             )
         elif source_zip and source_zip.startswith("s3://"):
             bucket, key_name = parse_s3_url(source_zip)
-            kwargs.update(dict(bucket=bucket, s3_key=key_name))
+            kwargs |= dict(bucket=bucket, s3_key=key_name)
             self.lambda_arn = self.zappa.update_lambda_function(**kwargs)
         elif source_zip and not source_zip.startswith("s3://"):
             with open(source_zip, mode="rb") as fh:
                 byte_stream = fh.read()
             kwargs["local_zip"] = byte_stream
             self.lambda_arn = self.zappa.update_lambda_function(**kwargs)
-        else:
-            if not no_upload:
-                kwargs["s3_key"] = handler_file
-                self.lambda_arn = self.zappa.update_lambda_function(**kwargs)
+        elif not no_upload:
+            kwargs["s3_key"] = handler_file
+            self.lambda_arn = self.zappa.update_lambda_function(**kwargs)
 
         # Remove the uploaded zip from S3, because it is now registered..
         if not source_zip and not no_upload and not docker_image_uri:
@@ -1177,9 +1171,13 @@ class ZappaCLI:
         )
 
         # Finally, delete the local copy our zip package
-        if not source_zip and not no_upload and not docker_image_uri:
-            if self.stage_config.get("delete_local_zip", True):
-                self.remove_local_zip()
+        if (
+            not source_zip
+            and not no_upload
+            and not docker_image_uri
+            and self.stage_config.get("delete_local_zip", True)
+        ):
+            self.remove_local_zip()
 
         if self.use_apigateway:
 
@@ -1238,10 +1236,10 @@ class ZappaCLI:
         self.callback("post")
 
         if endpoint_url and "https://" not in endpoint_url:
-            endpoint_url = "https://" + endpoint_url
+            endpoint_url = f"https://{endpoint_url}"
 
         if self.base_path:
-            endpoint_url += "/" + self.base_path
+            endpoint_url += f"/{self.base_path}"
 
         deployed_string = (
             "Your updated Zappa deployment is "
@@ -1250,17 +1248,16 @@ class ZappaCLI:
         )
         if self.use_apigateway:
             deployed_string = (
-                deployed_string
-                + ": "
-                + click.style("{}".format(endpoint_url), bold=True)
+                deployed_string + ": " + click.style(f"{endpoint_url}", bold=True)
             )
+
 
             api_url = None
             if endpoint_url and "amazonaws.com" not in endpoint_url:
                 api_url = self.zappa.get_api_url(self.lambda_name, self.api_stage)
 
                 if endpoint_url != api_url:
-                    deployed_string = deployed_string + " (" + api_url + ")"
+                    deployed_string = f"{deployed_string} ({api_url})"
 
             if self.stage_config.get("touch", True):
                 self.zappa.wait_until_lambda_function_is_ready(
@@ -1372,9 +1369,7 @@ class ZappaCLI:
         if self.cognito:
             user_pool = self.cognito.get("user_pool")
             triggers = self.cognito.get("triggers", [])
-            lambda_configs = set()
-            for trigger in triggers:
-                lambda_configs.add(trigger["source"].split("_")[0])
+            lambda_configs = {trigger["source"].split("_")[0] for trigger in triggers}
             self.zappa.update_cognito(
                 self.lambda_name, user_pool, lambda_configs, self.lambda_arn
             )
@@ -1386,10 +1381,9 @@ class ZappaCLI:
         """
         events = self.stage_config.get("events", [])
 
-        if events:
-            if not isinstance(events, list):  # pragma: no cover
-                print("Events must be supplied as a list.")
-                return
+        if events and not isinstance(events, list):
+            print("Events must be supplied as a list.")
+            return
 
         for event in events:
             self.collision_warning(event.get("function"))
@@ -1406,9 +1400,10 @@ class ZappaCLI:
                     "name": "zappa-keep-warm",
                     "function": "handler.keep_warm_callback",
                     "expression": keep_warm_rate,
-                    "description": "Zappa Keep Warm - {}".format(self.lambda_name),
+                    "description": f"Zappa Keep Warm - {self.lambda_name}",
                 }
             )
+
 
         if events:
             try:
@@ -1417,12 +1412,15 @@ class ZappaCLI:
                 )
             except botocore.exceptions.ClientError as e:  # pragma: no cover
                 click.echo(
-                    click.style("Function does not exist", fg="yellow")
-                    + ", please "
-                    + click.style("deploy", bold=True)
-                    + "first. Ex:"
-                    + click.style("zappa deploy {}.".format(self.api_stage), bold=True)
+                    (
+                        click.style("Function does not exist", fg="yellow")
+                        + ", please "
+                        + click.style("deploy", bold=True)
+                        + "first. Ex:"
+                        + click.style(f"zappa deploy {self.api_stage}.", bold=True)
+                    )
                 )
+
                 sys.exit(-1)
 
             print("Scheduling..")
@@ -1442,7 +1440,7 @@ class ZappaCLI:
             topic_arn = self.zappa.create_async_sns_topic(
                 lambda_name=self.lambda_name, lambda_arn=self.lambda_arn
             )
-            click.echo("SNS Topic created: %s" % topic_arn)
+            click.echo(f"SNS Topic created: {topic_arn}")
 
         # Add async tasks DynamoDB
         table_name = self.stage_config.get("async_response_table", False)
@@ -1453,9 +1451,9 @@ class ZappaCLI:
                 table_name, read_capacity, write_capacity
             )
             if created:
-                click.echo("DynamoDB table created: %s" % table_name)
+                click.echo(f"DynamoDB table created: {table_name}")
             else:
-                click.echo("DynamoDB table exists: %s" % table_name)
+                click.echo(f"DynamoDB table exists: {table_name}")
                 provisioned_throughput = response_table["Table"][
                     "ProvisionedThroughput"
                 ]
@@ -1493,11 +1491,9 @@ class ZappaCLI:
             function_arn = function_response["Configuration"]["FunctionArn"]
         except botocore.exceptions.ClientError as e:  # pragma: no cover
             raise ClickException(
-                "Function does not exist, you should deploy first. Ex: zappa deploy {}. "
-                "Proceeding to unschedule CloudWatch based events.".format(
-                    self.api_stage
-                )
+                f"Function does not exist, you should deploy first. Ex: zappa deploy {self.api_stage}. Proceeding to unschedule CloudWatch based events."
             )
+
 
         print("Unscheduling..")
         self.zappa.unschedule_events(
@@ -1511,7 +1507,7 @@ class ZappaCLI:
             "async_source", None
         ) == "sns" and self.stage_config.get("async_resources", True):
             removed_arns = self.zappa.remove_async_sns_topic(self.lambda_name)
-            click.echo("SNS Topic removed: %s" % ", ".join(removed_arns))
+            click.echo(f'SNS Topic removed: {", ".join(removed_arns)}')
 
     def invoke(self, function_name, raw_python=False, command=None, no_color=False):
         """
@@ -1552,9 +1548,7 @@ class ZappaCLI:
         # https://github.com/Miserlou/Zappa/pull/1254/
         if "FunctionError" in response:
             raise ClickException(
-                "{} error occurred while invoking command.".format(
-                    response["FunctionError"]
-                )
+                f'{response["FunctionError"]} error occurred while invoking command.'
             )
 
     def format_invoke_command(self, string):
@@ -1799,16 +1793,13 @@ class ZappaCLI:
         (since putenv needs a string)
         """
 
-        non_strings = []
-        for (k, v) in environment.items():
-            if not isinstance(v, basestring):
-                non_strings.append(k)
-        if non_strings:
+        if non_strings := [
+            k for (k, v) in environment.items() if not isinstance(v, basestring)
+        ]:
             raise ValueError(
-                "The following environment variables are not strings: {}".format(
-                    ", ".join(non_strings)
-                )
+                f'The following environment variables are not strings: {", ".join(non_strings)}'
             )
+
         else:
             return True
 

@@ -57,8 +57,8 @@ class TestDocs(unittest.TestCase):
                     # we only capture TOC contents *after* the TOC markers
                     m = re.search("^([#]{1,6}) (.*)$", line)
                     if m is not None and m.groups():
-                        header = m.group(1)
-                        header_text = m.group(2)
+                        header = m[1]
+                        header_text = m[2]
                         header_text_strip = re.sub("[^a-zA-Z0-9-_ ]", "", header_text)
 
                         if header_text_strip == "":
@@ -68,10 +68,11 @@ class TestDocs(unittest.TestCase):
                         header_text_no_spaces = header_text_strip.replace(
                             " ", "-"
                         ).lower()
-                        toc_line = "  " * (len(header) - 2) + "- [%s](#%s)" % (
-                            header_text,
-                            header_text_no_spaces.lower(),
+                        toc_line = (
+                            "  " * (len(header) - 2)
+                            + f"- [{header_text}](#{header_text_no_spaces.lower()})"
                         )
+
                         toc.append(toc_line)
 
         new_readme = template.format(

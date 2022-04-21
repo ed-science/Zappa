@@ -16,8 +16,8 @@ class TestWSGIMockMiddleWare(unittest.TestCase):
         """
         Set the test up with default headers and status codes.
         """
-        self.headers = list()
-        self.status = list()
+        self.headers = []
+        self.status = []
 
     def _start_response(self, status, headers, exc_info=None):
         self.status[:] = [status]
@@ -28,14 +28,14 @@ class TestWSGIMockMiddleWare(unittest.TestCase):
         # 2^9
         input_string = "Set-Cookie"
         x = 0
-        for casing in all_casings(input_string):
+        for _ in all_casings(input_string):
             x = x + 1
         self.assertEqual(x, 512)
 
         # 2^0
         input_string = ""
         x = 0
-        for casing in all_casings(input_string):
+        for _ in all_casings(input_string):
             x = x + 1
         self.assertEqual(x, 1)
 

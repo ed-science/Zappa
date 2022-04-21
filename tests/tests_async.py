@@ -20,11 +20,11 @@ class TestZappa(unittest.TestCase):
         # If the user has set a different region in env variables, we set it aside for now and use us-east-1
         self.users_current_region_name = os.environ.get("AWS_DEFAULT_REGION", None)
         os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-        if not os.environ.get("PLACEBO_MODE") == "record":
+        if os.environ.get("PLACEBO_MODE") != "record":
             self.sleep_patch.start()
 
     def tearDown(self):
-        if not os.environ.get("PLACEBO_MODE") == "record":
+        if os.environ.get("PLACEBO_MODE") != "record":
             self.sleep_patch.stop()
         del os.environ["AWS_DEFAULT_REGION"]
         if self.users_current_region_name is not None:

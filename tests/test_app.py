@@ -34,12 +34,12 @@ def schedule_me():
 
 @task
 def async_me(arg1, **kwargs):
-    return "run async when on lambda %s%s" % (arg1, kwargs.get("foo", ""))
+    return f'run async when on lambda {arg1}{kwargs.get("foo", "")}'
 
 
 @task(remote_aws_lambda_function_name="test-app-dev", remote_aws_region="us-east-1")
 def remote_async_me(arg1, **kwargs):
-    return "run async always on lambda %s%s" % (arg1, kwargs.get("foo", ""))
+    return f'run async always on lambda {arg1}{kwargs.get("foo", "")}'
 
 
 def callback(self):

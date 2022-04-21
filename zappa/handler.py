@@ -59,108 +59,103 @@ class LambdaHandler:
     def __init__(self, settings_name="zappa_settings", session=None):
 
         # We haven't cached our settings yet, load the settings and app.
-        if not self.settings:
-            # Loading settings from a python module
-            self.settings = importlib.import_module(settings_name)
-            self.settings_name = settings_name
-            self.session = session
+        if self.settings:
+            return
+        # Loading settings from a python module
+        self.settings = importlib.import_module(settings_name)
+        self.settings_name = settings_name
+        self.session = session
 
-            # Custom log level
-            if self.settings.LOG_LEVEL:
-                level = logging.getLevelName(self.settings.LOG_LEVEL)
-                logger.setLevel(level)
+        # Custom log level
+        if self.settings.LOG_LEVEL:
+            level = logging.getLevelName(self.settings.LOG_LEVEL)
+            logger.setLevel(level)
 
-            remote_env = getattr(self.settings, "REMOTE_ENV", None)
-            remote_bucket, remote_file = parse_s3_url(remote_env)
+        remote_env = getattr(self.settings, "REMOTE_ENV", None)
+        remote_bucket, remote_file = parse_s3_url(remote_env)
 
-            if remote_bucket and remote_file:
-                self.load_remote_settings(remote_bucket, remote_file)
+        if remote_bucket and remote_file:
+            self.load_remote_settings(remote_bucket, remote_file)
 
-            # Let the system know that this will be a Lambda/Zappa/Stack
-            os.environ["SERVERTYPE"] = "AWS Lambda"
-            os.environ["FRAMEWORK"] = "Zappa"
+        # Let the system know that this will be a Lambda/Zappa/Stack
+        os.environ["SERVERTYPE"] = "AWS Lambda"
+        os.environ["FRAMEWORK"] = "Zappa"
+        try:
+            os.environ["PROJECT"] = self.settings.PROJECT_NAME
+            os.environ["STAGE"] = self.settings.API_STAGE
+        except Exception:  # pragma: no cover
+            pass
+
+        # Set any locally defined env vars
+        # Environment variable keys can't be Unicode
+        # https://github.com/Miserlou/Zappa/issues/604
+        for key in self.settings.ENVIRONMENT_VARIABLES.keys():
+            os.environ[str(key)] = self.settings.ENVIRONMENT_VARIABLES[key]
+
+        if project_archive_path := getattr(self.settings, "ARCHIVE_PATH", None):
+            self.load_remote_project_archive(project_archive_path)
+
+        # Load compiled library to the PythonPath
+        # checks if we are the slim_handler since this is not needed otherwise
+        # https://github.com/Miserlou/Zappa/issues/776
+        is_slim_handler = getattr(self.settings, "SLIM_HANDLER", False)
+        if is_slim_handler:
+            included_libraries = getattr(
+                self.settings, "INCLUDE", ["libmysqlclient.so.18"]
+            )
             try:
-                os.environ["PROJECT"] = self.settings.PROJECT_NAME
-                os.environ["STAGE"] = self.settings.API_STAGE
-            except Exception:  # pragma: no cover
-                pass
+                from ctypes import cdll, util
 
-            # Set any locally defined env vars
-            # Environment variable keys can't be Unicode
-            # https://github.com/Miserlou/Zappa/issues/604
-            for key in self.settings.ENVIRONMENT_VARIABLES.keys():
-                os.environ[str(key)] = self.settings.ENVIRONMENT_VARIABLES[key]
+                for library in included_libraries:
+                    try:
+                        cdll.LoadLibrary(os.path.join(os.getcwd(), library))
+                    except OSError:
+                        print(f"Failed to find library: {library}...right filename?")
+            except ImportError:
+                print("Failed to import cytpes library")
 
-            # Pulling from S3 if given a zip path
-            project_archive_path = getattr(self.settings, "ARCHIVE_PATH", None)
-            if project_archive_path:
-                self.load_remote_project_archive(project_archive_path)
-
-            # Load compiled library to the PythonPath
-            # checks if we are the slim_handler since this is not needed otherwise
-            # https://github.com/Miserlou/Zappa/issues/776
-            is_slim_handler = getattr(self.settings, "SLIM_HANDLER", False)
-            if is_slim_handler:
-                included_libraries = getattr(
-                    self.settings, "INCLUDE", ["libmysqlclient.so.18"]
+        # This is a non-WSGI application
+        # https://github.com/Miserlou/Zappa/pull/748
+        if (
+            not hasattr(self.settings, "APP_MODULE")
+            and not self.settings.DJANGO_SETTINGS
+        ):
+            self.app_module = None
+            wsgi_app_function = None
+        # This is probably a normal WSGI app (Or django with overloaded wsgi application)
+        # https://github.com/Miserlou/Zappa/issues/1164
+        elif hasattr(self.settings, "APP_MODULE"):
+            if self.settings.DJANGO_SETTINGS:
+                sys.path.append("/var/task")
+                from django.conf import (
+                    ENVIRONMENT_VARIABLE as SETTINGS_ENVIRONMENT_VARIABLE,
                 )
-                try:
-                    from ctypes import cdll, util
 
-                    for library in included_libraries:
-                        try:
-                            cdll.LoadLibrary(os.path.join(os.getcwd(), library))
-                        except OSError:
-                            print(
-                                "Failed to find library: {}...right filename?".format(
-                                    library
-                                )
-                            )
-                except ImportError:
-                    print("Failed to import cytpes library")
-
-            # This is a non-WSGI application
-            # https://github.com/Miserlou/Zappa/pull/748
-            if (
-                not hasattr(self.settings, "APP_MODULE")
-                and not self.settings.DJANGO_SETTINGS
-            ):
-                self.app_module = None
-                wsgi_app_function = None
-            # This is probably a normal WSGI app (Or django with overloaded wsgi application)
-            # https://github.com/Miserlou/Zappa/issues/1164
-            elif hasattr(self.settings, "APP_MODULE"):
-                if self.settings.DJANGO_SETTINGS:
-                    sys.path.append("/var/task")
-                    from django.conf import (
-                        ENVIRONMENT_VARIABLE as SETTINGS_ENVIRONMENT_VARIABLE,
-                    )
-
-                    # add the Lambda root path into the sys.path
-                    self.trailing_slash = True
-                    os.environ[
-                        SETTINGS_ENVIRONMENT_VARIABLE
-                    ] = self.settings.DJANGO_SETTINGS
-                else:
-                    self.trailing_slash = False
-
-                # The app module
-                self.app_module = importlib.import_module(self.settings.APP_MODULE)
-
-                # The application
-                wsgi_app_function = getattr(self.app_module, self.settings.APP_FUNCTION)
-            # Django gets special treatment.
-            else:
-                try:  # Support both for tests
-                    from zappa.ext.django_zappa import get_django_wsgi
-                except ImportError:  # pragma: no cover
-                    from django_zappa_app import get_django_wsgi
-
-                # Get the Django WSGI app from our extension
-                wsgi_app_function = get_django_wsgi(self.settings.DJANGO_SETTINGS)
+                # add the Lambda root path into the sys.path
                 self.trailing_slash = True
+                os.environ[
+                    SETTINGS_ENVIRONMENT_VARIABLE
+                ] = self.settings.DJANGO_SETTINGS
+            else:
+                self.trailing_slash = False
 
-            self.wsgi_app = ZappaWSGIMiddleware(wsgi_app_function)
+            # The app module
+            self.app_module = importlib.import_module(self.settings.APP_MODULE)
+
+            # The application
+            wsgi_app_function = getattr(self.app_module, self.settings.APP_FUNCTION)
+        # Django gets special treatment.
+        else:
+            try:  # Support both for tests
+                from zappa.ext.django_zappa import get_django_wsgi
+            except ImportError:  # pragma: no cover
+                from django_zappa_app import get_django_wsgi
+
+            # Get the Django WSGI app from our extension
+            wsgi_app_function = get_django_wsgi(self.settings.DJANGO_SETTINGS)
+            self.trailing_slash = True
+
+        self.wsgi_app = ZappaWSGIMiddleware(wsgi_app_function)
 
     def load_remote_project_archive(self, project_zip_path):
         """
@@ -169,11 +164,7 @@ class LambdaHandler:
         project_folder = "/tmp/{0!s}".format(self.settings.PROJECT_NAME)
         if not os.path.isdir(project_folder):
             # The project folder doesn't exist in this cold lambda, get it from S3
-            if not self.session:
-                boto_session = boto3.Session()
-            else:
-                boto_session = self.session
-
+            boto_session = self.session or boto3.Session()
             # Download zip file from S3
             remote_bucket, remote_file = parse_s3_url(project_zip_path)
             s3 = boto_session.resource("s3")
@@ -197,11 +188,7 @@ class LambdaHandler:
         sensitiZve or stage-specific configuration variables in s3 instead of
         version control.
         """
-        if not self.session:
-            boto_session = boto3.Session()
-        else:
-            boto_session = self.session
-
+        boto_session = self.session or boto3.Session()
         s3 = boto_session.resource("s3")
         try:
             remote_env_object = s3.Object(remote_bucket, remote_file).get()
@@ -226,7 +213,7 @@ class LambdaHandler:
         # add each key-value to environment - overwrites existing keys!
         for key, value in settings_dict.items():
             if self.settings.LOG_LEVEL == "DEBUG":
-                print("Adding {} -> {} to environment".format(key, value))
+                print(f"Adding {key} -> {value} to environment")
             # Environment variable keys can't be Unicode
             # https://github.com/Miserlou/Zappa/issues/604
             try:
@@ -243,8 +230,7 @@ class LambdaHandler:
         """
         module, function = whole_function.rsplit(".", 1)
         app_module = importlib.import_module(module)
-        app_function = getattr(app_module, function)
-        return app_function
+        return getattr(app_module, function)
 
     @classmethod
     def lambda_handler(cls, event, context):  # pragma: no cover
@@ -310,9 +296,8 @@ class LambdaHandler:
 
         Support S3, SNS, DynamoDB, kinesis and SQS events
         """
-        if "s3" in record:
-            if ":" in record["s3"]["configurationId"]:
-                return record["s3"]["configurationId"].split(":")[-1]
+        if "s3" in record and ":" in record["s3"]["configurationId"]:
+            return record["s3"]["configurationId"].split(":")[-1]
 
         arn = None
         if "Sns" in record:
@@ -342,10 +327,10 @@ class LambdaHandler:
         intent = event.get("currentIntent")
         if intent:
             intent = intent.get("name")
-            if intent:
-                return self.settings.AWS_BOT_EVENT_MAPPING.get(
-                    "{}:{}".format(intent, event.get("invocationSource"))
-                )
+        if intent:
+            return self.settings.AWS_BOT_EVENT_MAPPING.get(
+                f'{intent}:{event.get("invocationSource")}'
+            )
 
     def get_function_for_cognito_trigger(self, trigger):
         """

@@ -73,15 +73,13 @@ def create_wsgi_request(
     #           https://github.com/Miserlou/Zappa/issues/696
     #           https://github.com/Miserlou/Zappa/issues/836
     #           https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol#Summary_table
-    if binary_support and (method in BINARY_METHODS):
-        if event_info.get("isBase64Encoded", False):
-            encoded_body = event_info["body"]
-            body = base64.b64decode(encoded_body)
-        else:
-            body = event_info["body"]
-            if isinstance(body, six.string_types):
-                body = body.encode("utf-8")
-
+    if (
+        binary_support
+        and (method in BINARY_METHODS)
+        and event_info.get("isBase64Encoded", False)
+    ):
+        encoded_body = event_info["body"]
+        body = base64.b64decode(encoded_body)
     else:
         body = event_info["body"]
         if isinstance(body, six.string_types):
@@ -93,7 +91,7 @@ def create_wsgi_request(
 
     path = urls.url_unquote(event_info["path"])
     if base_path:
-        script_name = "/" + base_path
+        script_name = f"/{base_path}"
 
         if path.startswith(script_name):
             path = path[len(script_name) :]
@@ -111,10 +109,12 @@ def create_wsgi_request(
         "QUERY_STRING": get_wsgi_string(query_string),
         "REMOTE_ADDR": remote_addr,
         "REQUEST_METHOD": method,
-        "SCRIPT_NAME": get_wsgi_string(str(script_name)) if script_name else "",
+        "SCRIPT_NAME": get_wsgi_string(str(script_name))
+        if script_name
+        else "",
         "SERVER_NAME": str(server_name),
         "SERVER_PORT": headers.get("X-Forwarded-Port", "80"),
-        "SERVER_PROTOCOL": str("HTTP/1.1"),
+        "SERVER_PROTOCOL": "HTTP/1.1",
         "wsgi.version": (1, 0),
         "wsgi.url_scheme": headers.get("X-Forwarded-Proto", "http"),
         "wsgi.input": body,
@@ -124,6 +124,7 @@ def create_wsgi_request(
         "wsgi.run_once": False,
     }
 
+
     # Input processing
     if method in ["POST", "PUT", "PATCH", "DELETE"]:
         if "Content-Type" in headers:
@@ -131,11 +132,7 @@ def create_wsgi_request(
 
         # This must be Bytes or None
         environ["wsgi.input"] = six.BytesIO(body)
-        if body:
-            environ["CONTENT_LENGTH"] = str(len(body))
-        else:
-            environ["CONTENT_LENGTH"] = "0"
-
+        environ["CONTENT_LENGTH"] = str(len(body)) if body else "0"
     for header in headers:
         wsgi_name = "HTTP_" + header.upper().replace("-", "_")
         environ[wsgi_name] = str(headers[header])
@@ -145,8 +142,7 @@ def create_wsgi_request(
         path_info = environ["PATH_INFO"]
 
         if script_name in path_info:
-            environ["PATH_INFO"].replace(script_name, "")
-
+            path_info.replace(script_name, "")
     if remote_user:
         environ["REMOTE_USER"] = remote_user
 

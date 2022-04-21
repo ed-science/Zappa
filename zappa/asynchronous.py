@@ -442,12 +442,12 @@ def task(*args, **kwargs):
             aws_region = aws_region_arg or os.environ.get("AWS_REGION")
 
             if (service in ASYNC_CLASSES) and (lambda_function_name):
-                send_result = ASYNC_CLASSES[service](
+                return ASYNC_CLASSES[service](
                     lambda_function_name=lambda_function_name,
                     aws_region=aws_region,
                     capture_response=capture_response,
                 ).send(task_path, args, kwargs)
-                return send_result
+
             else:
                 return func(*args, **kwargs)
 
@@ -480,8 +480,7 @@ def import_and_get_task(task_path):
     """
     module, function = task_path.rsplit(".", 1)
     app_module = importlib.import_module(module)
-    app_function = getattr(app_module, function)
-    return app_function
+    return getattr(app_module, function)
 
 
 def get_func_task_path(func):
@@ -489,10 +488,9 @@ def get_func_task_path(func):
     Format the modular task path for a function via inspection.
     """
     module_path = inspect.getmodule(func).__name__
-    task_path = "{module_path}.{func_name}".format(
+    return "{module_path}.{func_name}".format(
         module_path=module_path, func_name=func.__name__
     )
-    return task_path
 
 
 def get_async_response(response_id):
